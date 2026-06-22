@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A quality management project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "loadcase": { "type": "string" },
+        "owner": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "responsiblePerson": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "projectType": { "type": "string" },
+        "plannedStart": { "type": "string", "format": "date" },
+        "plannedEnd": { "type": "string", "format": "date" },
+        "actualStart": { "type": "string", "format": "date" },
+        "actualEnd": { "type": "string", "format": "date" },
+        "progress": { "type": "number" },
+        "preprocessingChekkai": { "type": "boolean" },
+        "modelChekkai": { "type": "boolean" },
+        "resultsChekkai": { "type": "boolean" },
+        "onHoldPeriods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "string", "format": "date" },
+              "end": { "type": "string", "format": "date" },
+              "reason": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["loadcase", "ownerEmail", "status"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "Metadata for a managed document",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "owner": { "type": "string" },
+        "version": { "type": "string" },
+        "updated": { "type": "string", "format": "date" },
+        "status": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["name", "owner", "status"]
+    },
+    "Audit": {
+      "title": "Audit",
+      "description": "Audit trail entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "entity": { "type": "string" },
+        "action": { "type": "string" },
+        "user": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["date", "entity", "action"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Extended user information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Contributor", "Viewer"] },
+        "photoURL": { "type": "string" }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "projects": {
+      "schema": "Project",
+      "description": "Collection of QMS projects"
+    },
+    "documents": {
+      "schema": "Document",
+      "description": "Collection of controlled documents"
+    },
+    "audits": {
+      "schema": "Audit",
+      "description": "Audit logs"
+    },
+    "users": {
+      "schema": "UserProfile",
+      "description": "User profile data"
+    }
+  }
+}

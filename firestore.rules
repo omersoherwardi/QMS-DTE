@@ -1,0 +1,156 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { return request.auth.token.email_verified == true; }
+    
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'omer.s7861@gmail.com' ||
+        request.auth.token.email == 'omer.soherwardi@gmail.com' ||
+        request.auth.uid == 'doMSNYKnsgN1Pf1E3JCn7spCUFk1'
+      );
+    }
+
+    function isAuditManager() {
+      return isSuperAdmin() || (isApproved() && (isAdmin() || isContributor()));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isApproved() { 
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && (
+        isSuperAdmin() ||
+        (exists(userPath) && get(userPath).data.get('status', 'pending') == 'approved')
+      ); 
+    }
+
+    function isPending() {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && exists(userPath) && get(userPath).data.get('status', 'pending') == 'pending';
+    }
+
+    function hasRole(role) { 
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && (
+        (isSuperAdmin() && (role == 'Admin' || role == 'Contributor')) ||
+        (exists(userPath) && get(userPath).data.get('role', 'none') == role)
+      ); 
+    }
+    
+    function isAdmin() { return hasRole('Admin'); }
+    function isContributor() { return hasRole('Contributor'); }
+    function isViewer() { return hasRole('Viewer'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // --- Entity Validations ---
+    function isValidProject(data) {
+      return data.name is string && data.name.size() <= 500 &&
+             data.owner is string && data.owner.size() <= 200 &&
+             data.ownerEmail is string && data.ownerEmail.size() <= 200 &&
+             data.status is string && data.status.size() <= 100 &&
+             data.priority is string && data.priority.size() <= 100 &&
+             data.ownerEmail == request.auth.token.email;
+    }
+
+    function isValidDocument(data) {
+      return data.name is string && data.name.size() <= 200 &&
+             data.status is string && data.status.size() <= 50;
+    }
+
+    function isValidAudit(data) {
+      return data.entity is string && data.entity.size() <= 500 &&
+             data.assessor is string && data.assessor.size() <= 100 &&
+             data.date is string && data.date.size() <= 50 &&
+             data.standard is string && data.standard.size() <= 100 &&
+             data.status is string && data.status.size() <= 50 &&
+             data.action is string && data.action.size() <= 200 &&
+             (!data.keys().contains('statusColor') || (data.statusColor is string && data.statusColor.size() <= 200)) &&
+             (!data.keys().contains('notes') || (data.notes is string && data.notes.size() <= 5000)) &&
+             (!data.keys().contains('findings') || (data.findings is string && data.findings.size() <= 5000)) &&
+             (!data.keys().contains('comments') || (data.comments is string && data.comments.size() <= 5000));
+    }
+
+    // --- Collection Rules ---
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId 
+                     && (incoming().role in ['Admin', 'User', 'Contributor', 'Viewer'])
+                     && incoming().email == request.auth.token.email
+                     && (incoming().status == 'pending' || isSuperAdmin());
+      allow update: if isSignedIn() && (
+        (request.auth.uid == userId && !incoming().diff(existing()).affectedKeys().hasAny(['role', 'email', 'status']))
+        || isAdmin()
+      );
+    }
+
+    // Projects
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isApproved() || isPending()) 
+                     && (isAdmin() || isContributor()) 
+                     && isValidProject(incoming());
+      allow update: if (isApproved() || isPending()) && (
+        isAdmin() 
+        || (isContributor() && existing().ownerEmail == request.auth.token.email && isValidProject(incoming()))
+      );
+      allow delete: if isApproved() && isAdmin();
+    }
+
+    // Documents
+    match /documents/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isApproved() && (isAdmin() || isContributor()) && isValidDocument(incoming());
+      allow delete: if isApproved() && isAdmin();
+    }
+
+    // Audits
+    match /audits/{auditId} {
+      allow read: if isApproved() && !isViewer();
+      allow create: if isSuperAdmin() || (isAuditManager() && isValidAudit(incoming()));
+      allow update: if isSuperAdmin() || (isAuditManager() && isValidAudit(incoming()));
+      allow delete: if isApproved() && isAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (
+        resource.data.get('broadcast', false) == true || 
+        resource.data.get('targetUserId', '') == request.auth.uid || 
+        (resource.data.get('targetRole', '') == 'Admin' && isAdmin())
+      );
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) && 
+         (resource.data.get('targetUserId', '') == request.auth.uid || 
+          (resource.data.get('targetRole', '') == 'Admin' && isAdmin()) ||
+          resource.data.get('broadcast', false) == true))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Role Requests
+    match /roleRequests/{requestId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+  }
+}
